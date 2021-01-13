@@ -15,50 +15,6 @@ start_time = time.time()
 #    print("self.{} = {}".format(i,i))
 
 
-# the following code will only be available in future versions of numba which will support class on gpu
-
-# spec1 = [
-#     ('lenght',float32),
-#     ('width',float32),
-#     ('height',float32),
-#     ('x',float32),
-#     ('y',float32),
-#     ('z',float32),
-# ]
-#
-# spec2 = [
-#     ('x0',float32),
-#     ('y0',float32),
-#     ('z0',float32),
-#     ('theta',float32),
-#     ('phi',float32),
-# ]
-#
-# @jitclass(spec1)
-# class scintillator(object):
-#     def __init__(self, lenght, width, height, x, y, z):
-#         # position of scintillator is the position of its center
-#         self.lenght = lenght
-#         self.width = width
-#         self.height = height
-#         self.x = x
-#         self.y = y
-#         self.z = z
-#
-#     def top_surface(self):
-#         return self.z+self.height/2
-#
-# @jitclass(spec2)
-# class muon(object):
-#     def __init__(self, x0, y0, z0, theta, phi):
-#         self.x0 = x0
-#         self.y0 = y0
-#         self.z0 = z0
-#         self.theta = theta
-#         self.phi = phi
-
-
-
 
 @jit(nopython=True)
 def mu_flux(x):
@@ -85,18 +41,30 @@ muon = namedtuple('muon', ['x0','y0','z0','theta','phi'])
 scintillator = namedtuple('scintillator', ['lenght', 'width', 'height', 'x0','y0','z0'])
 
 @cuda.jit
-def single_muon(rng_states, theta, phi, z0, s1, s2, s3):
+def single_muon(rng_states, z0, s1, s2, s3):
     thread_id = cuda.grid(1)
 
     # x0 and y0 are generated between -Ls/2 and Ls/2
     x0 = xoroshiro128p_uniform_float32(rng_states, thread_id) * L_s-L_s/2
     y0 = xoroshiro128p_uniform_float32(rng_states, thread_id) * l_s-l_s/2
+
+    phi = xoroshiro128p_uniform_float32(rng_states, thread_id) * 2 * pi
+
+    theta = xoroshiro128p_uniform_float32(rng_states, thread_id) * pi/2
+    y = xoroshiro128p_uniform_float32(rng_states, thread_id) * 0.33
+    while(y>theta_distrib(theta)):
+        theta = xoroshiro128p_uniform_float32(rng_states, thread_id) * pi/2
+        y = xoroshiro128p_uniform_float32(rng_states, thread_id) * 0.33
+
 	# mu = {'x0': x0, 'y0': y0, 'z0': z0, 'theta': theta, 'phi': phi}
     mu = muon(x0,y0,z0,theta,phi)
     # normal configuration:
     #scint1 is at the top
 
     scint1 = scintillator(0.8,0.3,0.02,0,0,0.11)
+    scint2 = scintillator(0.8,0.3,0.04,0,0,0.07)
+    scint3 = scintillator(0.8,0.3,0.04,0,0,0.02)
+
     # scint1 = {'lenght': 0.8, 'width': 0.3, 'height': 0.02, 'x0': 0, 'y0': 0, 'z0': 0.11}
     # scint2 = {'lenght': 0.8, 'width': 0.3, 'height': 0.04, 'x0': 0, 'y0': 0, 'z0': 0.07}
     # scint3 = {'lenght': 0.8, 'width': 0.3, 'height': 0.04, 'x0': 0, 'y0': 0, 'z0': 0.02}
@@ -107,15 +75,15 @@ def single_muon(rng_states, theta, phi, z0, s1, s2, s3):
     # scint_passed3 = passed(theta, phi, x0, y0, z0, 3)
 
     scint_passed1 = passed(mu, scint1)
-    # scint_passed2 = passed(mu, scint2)
-    # scint_passed3 = passed(mu, scint3)
-	#
-    # if scint_passed1:
-    #     s1[thread_id] = 1
-    # if scint_passed2:
-    #     s2[thread_id] = 1
-    # if scint_passed3:
-    #     s3[thread_id] = 1
+    scint_passed2 = passed(mu, scint2)
+    scint_passed3 = passed(mu, scint3)
+
+    if scint_passed1:
+        s1[thread_id] = 1
+    if scint_passed2:
+        s2[thread_id] = 1
+    if scint_passed3:
+        s3[thread_id] = 1
 
 
 
@@ -143,9 +111,10 @@ def geometrical_factor(rng_states, z0, double, triple):
 
     # code for geometrical factor:
     #scint1 is at the top
+    zona = 2
     scint1 = scintillator(0.8,0.3,0.02,0,0,0.11)
     scint2 = scintillator(0.8,0.3,0.04,0,0,0.07)
-    scint3 = scintillator(0.3,0.8,0.04,0,0,0.02)
+    scint3 = scintillator(0.3,0.8,0.04,0,0.25-0.3*zona,0.02)
 
     # #scint1 = {'lenght': 0.8, 'width': 0.3, 'height': 0.02, 'x0': 0, 'y0': 0, 'z0': 0.11}
     # scint2 = {'lenght': 0.8, 'width': 0.3, 'height': 0.04, 'x0': 0, 'y0': 0, 'z0': 0.07}
@@ -193,11 +162,11 @@ def passed(mu, scint):
         # first case is first if
         # third case is second if
         # fourth case is the break
-        if((abs(x)<scint.width/2) and (abs(y)<scint.lenght/2) and not ingress):
+        if((abs(x-scint.x0)<scint.width/2) and (abs(y-scint.y0)<scint.lenght/2) and not ingress):
             ingress = True
             path += decrement/cos(mu.theta)
 
-        elif((abs(x)<scint.width/2) and (abs(y)<scint.lenght/2) and ingress):
+        elif((abs(x-scint.x0)<scint.width/2) and (abs(y-scint.y0)<scint.lenght/2) and ingress):
             path += decrement/cos(mu.theta)
 
         elif(ingress):
@@ -268,6 +237,58 @@ def passed(mu, scint):
 #         return False
 
 
+
+# L = 0.80 #m
+# l = 0.30 #m
+#
+# tempo = 600 #secondi (10 minuti)
+# #definisco superfice sopra lo scintillatore
+# L_s = 5 #m
+# l_s = 2 #m
+# S = L_s*l_s #area sopra sintillatori m^2
+# #coordinate iniziali dei muoni
+# z0 = 2 #m
+#
+# tot1 = np.zeros(1)
+# tot2 = np.zeros(1)
+# tot3 = np.zeros(1)
+#
+#
+# for i in range(1000):
+#     #theta = 0.49087549338874903
+#     # flux = mu_flux(theta)
+#     # phi = random.uniform(0, 2*pi)
+#     # # the flux and the surface are not perpendicular, cosine is needed for calculating the rate of particles
+#     # N = tempo*flux*S*cos(theta)*sin(theta)
+#     # massimo numero di cuda cores per rtx 2070 super = 2560 quindi 40*64
+#     threads_per_block = 64
+#     blocks = 40
+#
+#     nIterations = 10000//(threads_per_block*blocks)
+#     #nIterations = 1
+#     for j in range(round(nIterations)):
+#
+#         out1 = np.zeros(threads_per_block * blocks)
+#         out2 = np.zeros(threads_per_block * blocks)
+#         out3 = np.zeros(threads_per_block * blocks)
+#
+#         rng_states = create_xoroshiro128p_states(threads_per_block * blocks, seed=random.uniform(0,10000))
+#
+#         single_muon[blocks, threads_per_block](rng_states, z0, out1, out2, out3)
+#         # single_muon[blocks, threads_per_block](rng_states, theta, phi, z0, out1, out2, out3)
+#         tot1 = np.concatenate((tot1,out1))
+#         tot2 = np.concatenate((tot2,out2))
+#         tot3 = np.concatenate((tot3,out3))
+#
+#
+# print(tot1.sum(), tot2.sum() ,tot3.sum())
+#
+#
+#
+# print("--- %s seconds ---" % (time.time() - start_time))
+
+
+
 L = 0.80 #m
 l = 0.30 #m
 
@@ -297,6 +318,7 @@ for i in range(1000):
     blocks = 40
 
     nIterations = 10000//(threads_per_block*blocks)
+    #nIterations = 1
     for j in range(round(nIterations)):
 
         out1 = np.zeros(threads_per_block * blocks)
