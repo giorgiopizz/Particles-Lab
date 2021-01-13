@@ -12,28 +12,21 @@ start_time = time.time()
 # class initialization standard:
 # a = "x0, y0, z0, theta, phi"
 # for i in a.split(", "):
-#      print("self.{} = {}".format(i,i))
+#    print("self.{} = {}".format(i,i))
 
 class scintillator:
-    def __init__(self, dimension, position):
+    def __init__(self, lenght, width, height, x, y, z):
         # position of scintillator is the position of its center
-        self.dimension = dimension
-        self.position = position
-
-    def top_surface(self):
-        return self.position.z+self.dimension.height/2
-
-class position:
-    def __init__(self, x, y, z):
+        self.lenght = lenght
+        self.width = width
+        self.height = height
         self.x = x
         self.y = y
         self.z = z
 
-class dimension:
-    def __init__(self, lenght, width, height):
-        self.lenght = lenght
-        self.width = width
-        self.height = height
+    def top_surface(self):
+        return self.z+self.height/2
+
 
 class muon:
     def __init__(self, x0, y0, z0, theta, phi):
@@ -219,10 +212,12 @@ S = L_s*l_s #area sopra sintillatori m^2
 #coordinate iniziali dei muoni
 z0 = 2 #m
 
-results = []
 tot1 = np.zeros(1)
 tot2 = np.zeros(1)
 tot3 = np.zeros(1)
+
+double = np.zeros(1)
+triple = np.zeros(1)
 
 for i in range(100):
     theta = random.uniform(0, pi/2)
@@ -240,18 +235,18 @@ for i in range(100):
 
         out1 = np.zeros(threads_per_block * blocks)
         out2 = np.zeros(threads_per_block * blocks)
-        out3 = np.zeros(threads_per_block * blocks)
+        # out3 = np.zeros(threads_per_block * blocks)
 
         rng_states = create_xoroshiro128p_states(threads_per_block * blocks, seed=random.uniform(0,10000))
 
-        position[blocks, threads_per_block](rng_states, theta, phi, z0, out1, out2, out3)
+        geometrical_factor[blocks, threads_per_block](rng_states, theta, phi, z0, out1, out2)
+        # single_muon[blocks, threads_per_block](rng_states, theta, phi, z0, out1, out2, out3)
+        double = np.concatenate((double,out1))
+        triple = np.concatenate((triple,out2))
+        # tot3 = np.concatenate((tot3,out3))
 
-        tot1 = np.concatenate((tot1,out1))
-        tot2 = np.concatenate((tot2,out2))
-        tot3 = np.concatenate((tot3,out3))
 
-
-print(tot1.sum(), tot2.sum() , tot3.sum())
+print(double.sum(), triple.sum() ,triple.sum()/double.sum())
 
 
 
