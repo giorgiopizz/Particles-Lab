@@ -4,7 +4,8 @@ from math import sin, cos, pi
 from numba.cuda.random import create_xoroshiro128p_states, xoroshiro128p_uniform_float32
 from numba import cuda, jit
 import numpy as np
-
+from numba import float32
+from numba.experimental import jitclass
 
 start_time = time.time()
 
@@ -14,7 +15,27 @@ start_time = time.time()
 # for i in a.split(", "):
 #    print("self.{} = {}".format(i,i))
 
-class scintillator:
+
+# the following code will only be available in future versions of numba which will support class on gpu
+spec1 = [
+    ('lenght',float32),
+    ('width',float32),
+    ('height',float32),
+    ('x',float32),
+    ('y',float32),
+    ('z',float32),
+]
+
+spec2 = [
+    ('x0',float32),
+    ('y0',float32),
+    ('z0',float32),
+    ('theta',float32),
+    ('phi',float32),
+]
+
+@jitclass(spec1)
+class scintillator(object):
     def __init__(self, lenght, width, height, x, y, z):
         # position of scintillator is the position of its center
         self.lenght = lenght
@@ -27,14 +48,22 @@ class scintillator:
     def top_surface(self):
         return self.z+self.height/2
 
-
-class muon:
+@jitclass(spec2)
+class muon(object):
     def __init__(self, x0, y0, z0, theta, phi):
         self.x0 = x0
         self.y0 = y0
         self.z0 = z0
         self.theta = theta
         self.phi = phi
+
+
+
+
+@jit(nopython=True)
+def mu_flux(x):
+	# 70 m^-2 s^-1 sr^-1
+	return 70 * cos(x)**2
 
 
 
@@ -212,9 +241,9 @@ S = L_s*l_s #area sopra sintillatori m^2
 #coordinate iniziali dei muoni
 z0 = 2 #m
 
-tot1 = np.zeros(1)
-tot2 = np.zeros(1)
-tot3 = np.zeros(1)
+# tot1 = np.zeros(1)
+# tot2 = np.zeros(1)
+# tot3 = np.zeros(1)
 
 double = np.zeros(1)
 triple = np.zeros(1)
