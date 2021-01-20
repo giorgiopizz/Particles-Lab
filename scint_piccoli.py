@@ -27,7 +27,7 @@ def rand_theta(rng_states, theta):
 
 muon = namedtuple('muon', ['x0','y0','z0','theta','phi'])
 
-scintillator = namedtuple('scintillator', ['lenght', 'width', 'height', 'x0','y0','z0'])
+scintillator = namedtuple('scintillator', ['lenght', 'width', 'height', 'x0','y0','z0', 'th'])
 
 
 
@@ -62,9 +62,9 @@ def geometrical_factor(rng_states, z0, double, triple):
     # scint2 = scintillator(0.8,0.3,0.04,0,0,0.07)
     # scint3 = scintillator(0.3,0.8,0.04,0,0.25-0.3*zona,0.02)
 
-	scint1 = scintillator(0.08,0.27,0.01,0,0.09,0.1)
-    scint2 = scintillator(0.8,0.3,0.04,0,0,0.05)
-    scint3 = scintillator(0.08,0.265,0.01,0,0.09,0.005)
+    scint1 = scintillator(0.08,0.27,0.01,0,0.09,0.1,0.2)
+    scint2 = scintillator(0.8,0.3,0.04,0,0,0.05, 3)
+    scint3 = scintillator(0.08,0.265,0.01,0,0.09,0.005,0.2)
 
     # #scint1 = {'lenght': 0.8, 'width': 0.3, 'height': 0.02, 'x0': 0, 'y0': 0, 'z0': 0.11}
     # scint2 = {'lenght': 0.8, 'width': 0.3, 'height': 0.04, 'x0': 0, 'y0': 0, 'z0': 0.07}
@@ -129,7 +129,7 @@ def passed(mu, scint):
     # * 100 is m to cm conversion factor
     released_energy = 1 * 1.032 * path * 100
     #print(released_energy)
-    if(released_energy > 3):
+    if(released_energy > scint.th):
         return True
     else:
         return False

@@ -18,7 +18,16 @@ def rand_theta(rng_states, theta):
         print('p')
     theta[thread_id] = x
 
-
+@cuda.jit
+def rand_diff(rng_states, theta):
+    thread_id = cuda.grid(1)
+    x = xoroshiro128p_uniform_float32(rng_states, thread_id)
+    y = xoroshiro128p_uniform_float32(rng_states, thread_id)
+    # if y>x and y<x+0.2:
+    #     theta[thread_id] = y-x
+    # else:
+    #     theta[thread_id] = -1
+    theta[thread_id] = y-x
 
 @jit(nopython=True)
 def theta_distrib(x):
@@ -41,13 +50,16 @@ def theta_distrib(x):
 #
 #     x.append(rand_theta())
 
+tot = np.zeros(1)
 
-threads_per_block = 64
-blocks = 40
-theta = np.zeros(threads_per_block * blocks)
-rng_states = create_xoroshiro128p_states(threads_per_block * blocks, seed=random.uniform(0,10000))
-rand_theta[blocks, threads_per_block](rng_states, theta)
+for i in range(5):
+    threads_per_block = 64
+    blocks = 40
+    theta = np.zeros(threads_per_block * blocks)
+    rng_states = create_xoroshiro128p_states(threads_per_block * blocks, seed=random.uniform(0,10000))
+    rand_diff[blocks, threads_per_block](rng_states, theta)
+    ciao = theta[theta!=-1]
+    tot = np.concatenate((tot, ciao))
 
-
-plt.hist(theta)
+plt.hist(tot)
 plt.show()
