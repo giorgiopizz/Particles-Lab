@@ -1,8 +1,9 @@
 import time
 import random
-from math import sin, cos, pi, factorial, exp
+from math import sin, cos, pi, exp
+from numba.cuda.random import create_xoroshiro128p_states, xoroshiro128p_uniform_float32
 from numba import cuda, jit
-
+import numpy as np
 import matplotlib.pyplot as plt
 
 from scipy.stats import poisson
@@ -13,18 +14,99 @@ started = False
 #last_time = 0
 start_time = 0
 
+
+
+
+def factorial(N):
+    if N==1 or N==0:
+        return 1
+    else:
+        p = 1
+        for i in range(N,1,-1):
+            p *= i
+        return p
+
+
 @jit(nopython=True)
 def interval(rate, t):
     return exp(-rate*t)*rate
 
 @jit(nopython=True)
-def rand_Time(rate):
-    time = random.uniform(0,T_measure)
+def interval_multiple_events(rate, N, t):
+    return pow((rate*t),(N-1))*exp(-rate*t)*rate/factorial(N-1)
+
+# interval_multiple_events(100,90,0.011)
+
+@jit(nopython=True)
+def rand_Time(rate, final_time):
+    time = random.uniform(0,final_time)
     y = random.uniform(0,rate)
     while(y>interval(rate, time)):
-        time = random.uniform(0,T_measure)
+        time = random.uniform(0,final_time)
         y = random.uniform(0,rate)
     return time
+
+
+
+
+@cuda.jit
+def generation(rng_states, final_time, start_stop):
+    thread_id = cuda.grid(1)
+
+
+
+
+    time = xoroshiro128p_uniform_float32(rng_states, thread_id) * T_measure
+    y = xoroshiro128p_uniform_float32(rng_states, thread_id) * rate
+    while(y>interval(rate, time)):
+        time = xoroshiro128p_uniform_float32(rng_states, thread_id) * T_measure
+        y = xoroshiro128p_uniform_float32(rng_states, thread_id) * rate
+    coin =  xoroshiro128p_uniform_float32(rng_states, thread_id)
+    if coin>=0.9:
+        # it's a stop
+        start_stop = 2
+    elif coin>0.1 and coin<0.9:
+        # it's not a start nor a stop
+        start_stop = 3
+    else:
+        #it's a start
+        start_stop = 1
+
+
+def matrix_population(start_stop):
+    M = np.array([])
+    i=0
+    while i<len(start_stop):
+        if start_stop[i] == 1:
+            l = [0]
+            for j in range(i+1, len(start_stop)):
+                if start_stop[j] == 1:
+                    i = j
+                    l = [0]
+                elif start_stop[j] == 3:
+                    l.append(1)
+                elif start_stop[j] == 2:
+                    l.append(1)
+                    row = np.concatenate((np.zeros(i), np.array(l), np.zeros(len(start_stop)-(j+1))))
+                    if M.size!=0:
+                        M = np.vstack([M,row])
+                    else:
+                        M = np.array([row])
+                    i = j+1
+                    break
+        i+=1
+    return M
+
+@cuda.jit
+def matmul(M, times, result):
+    """Perform square matrix multiplication of C = A * B
+    """
+    i = cuda.grid(1)
+    if i < result.shape[0]:
+        tmp = 0.
+        for j in range(M.shape[1]):
+            tmp += M[i, j] * times[j]
+        result[i] = tmp
 
 
 #
@@ -171,14 +253,53 @@ rate = 1666.7
 # T_measure is 100 minutes(~an hour and half)
 T_measure = 100 * 60
 N = poisson.rvs( rate*T_measure, size = 1)
+#
+# times = []
+# last_time = 0
+# for i in range(1,1000):
+#     final_time = T_measure - last_time
+#     last_time += rand_Time(rate, final_time)
+#     if started:
+#         delta = last_time - start_time
+#         if delta < 11e-6:
+#             times.append(delta)
+#             started = False
+#     else:
+#         started = True
+#         start_time = last_time
+#
+# print(N)
+# print(times)
+# plt.hist(times)
+# plt.show()
 
-x = []
-for i in range(100):
-    x.append(rand_Time(rate))
-print(N)
-print(x)
-plt.hist(x)
-plt.show()
+result = np.zeros(1)
+
+
+threads_per_block = 64
+blocks = 40
+
+nIterations = 3000//(threads_per_block*blocks)
+#nIterations = 1
+for j in range(round(nIterations)):
+
+    out1 = np.zeros(threads_per_block * blocks)
+    out2 = np.zeros(threads_per_block * blocks)
+    # out3 = np.zeros(threads_per_block * blocks)
+
+    rng_states = create_xoroshiro128p_states(threads_per_block * blocks, seed=random.uniform(0,10000))
+
+    generation[blocks, threads_per_block](rng_states, out1, out2 )
+
+    M = matrix_population(out2)
+
+    # r = np.zeros(M.shape[0])
+    # matmul[blocks, threads_per_block](M, out1, r)
+    r = np.dot(M, out1)
+    result = np.concatenate((result,r))
+
+
+
 
 # y = xoroshiro128p_uniform_float32(rng_states, thread_id) * 0.33
 # while(y>theta_distrib(theta)):
