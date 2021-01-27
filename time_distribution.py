@@ -1,7 +1,7 @@
 import time
-import random
-from math import sin, cos, pi, factoria, exp
-from numba.cuda.random import create_xoroshiro128p_states, xoroshiro128p_uniform_float32
+from random import uniform
+from math import sin, cos, pi, factorial, exp, log
+#from numba.cuda.random import create_xoroshiro128p_states, xoroshiro128p_uniform_float32
 from numba import cuda, jit
 import numpy as np
 import matplotlib.pyplot as plt
@@ -12,10 +12,31 @@ start_time = time.time()
 
 
 
+@jit(nopython=True)
+def interval_2(rate, Y):
+    # given a probability distribution function (pdf) and it's cumulative distr.
+    # function (cdf) it's possible to sample a random variable with distribution
+    # given by the pdf using the inverse of cdf, named F(y).
+    # If y is uniformly distributed between 0 and 1(as the y coordinate of the CDF)
+    # then F(y)= x, is distributed with pdf
+
+    # in our case we use the distribution of time interval between 2 poiss. events
+    # and the cfd is y = 1 - exp(-r * t)
+    # inverting we get:
+
+    return -log(1 - Y)/rate
+
+
+
+
 
 @jit(nopython=True)
 def interval(rate, t):
     return exp(-rate*t)*rate
+
+
+
+
 
 @jit(nopython=True)
 def interval_multiple_events(rate, N, t):
@@ -33,6 +54,32 @@ def rand_Time(rate, final_time):
     return time
 
 
+@jit(nopython = True)
+def generation_2(i, final_time, start_stop):
+
+    thread_id = i
+
+    # maximum precision of python is such that if r*t > 37 then exp(-38) = 0.0
+    # max_time can then be 37/rate
+
+
+
+    final_time[thread_id] = interval_2(rate, uniform(0,1))
+
+    coin =  uniform(0,1)
+
+    if coin>=0.9:
+        # it's a stop
+        start_stop[thread_id] = 2
+    elif coin>0.5 and coin<0.9:
+        # it breaks out start
+        start_stop[thread_id] = 4
+    elif coin>0.1 and coin<0.5:
+        # it's not a start nor a stop but it doesn't bother us
+        start_stop[thread_id] = 3
+    else:
+        #it's a start
+        start_stop[thread_id] = 1
 
 
 @cuda.jit
@@ -63,6 +110,7 @@ def generation(rng_states, final_time, start_stop):
         #it's a start
         start_stop[thread_id] = 1
 
+@jit(nopython=True)
 def time_diff(final_time, start_stop):
     times = []
     i=0
@@ -75,6 +123,10 @@ def time_diff(final_time, start_stop):
                     # print('new t')
                     i = j
                     t = 0
+                elif start_stop[j] == 4:
+                    # it breaks out start
+                    i = j+1
+                    break
                 elif start_stop[j] == 3:
                     t+= final_time[j]
                 elif start_stop[j] == 2:

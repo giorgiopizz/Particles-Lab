@@ -21,6 +21,22 @@ def poissonian(mu, N):
     # where mu = r*T and the number of muons is N
     return pow(mu, N)*exp(-mu)/factorial(N)
 
+
+@jit(nopython=True)
+def interval_2(rate, Y):
+    # given a probability distribution function (pdf) and it's cumulative distr.
+    # function (cdf) it's possible to sample a random variable with distribution
+    # given by the pdf using the inverse of cdf, named F(y).
+    # If y is uniformly distributed between 0 and 1(as the y coordinate of the CDF)
+    # then F(y)= x, is distributed with pdf
+
+    # in our case we use the distribution of time interval between 2 poiss. events
+    # and the cfd is y = 1 - exp(-r * t)
+    # inverting we get:
+
+    return -log(1 - Y)/rate
+
+
 @jit(nopython=True)
 def interval(rate, t):
     return exp(-rate*t)*rate
