@@ -23,7 +23,7 @@ def poissonian(mu, N):
 
 
 @jit(nopython=True)
-def interval_2(rate, Y):
+def interval_2(Y, rate):
     # given a probability distribution function (pdf) and it's cumulative distr.
     # function (cdf) it's possible to sample a random variable with distribution
     # given by the pdf using the inverse of cdf, named F(y).
@@ -77,6 +77,10 @@ def time_diff(final_time, start_stop):
                     print('new t')
                     i = j
                     t = 0
+                elif start_stop[j] == 4:
+                    # it breaks out start
+                    i = j+1
+                    break
                 elif start_stop[j] == 3:
                     t+= final_time[j]
                 elif start_stop[j] == 2:
@@ -111,28 +115,19 @@ def generation(rng_states, final_time, start_stop):
         y = xoroshiro128p_uniform_float32(rng_states, thread_id) * 0.33
 
 
-    time = xoroshiro128p_uniform_float32(rng_states, thread_id) * T_measure
-    y = xoroshiro128p_uniform_float32(rng_states, thread_id) * rate
-    while(y>theta_distrib(theta)):
-        theta = xoroshiro128p_uniform_float32(rng_states, thread_id) * pi/2
-        y = xoroshiro128p_uniform_float32(rng_states, thread_id) * 0.33
 
+    y = xoroshiro128p_uniform_float32(rng_states, thread_id)
+    time = interval_2(y, rate)
 
-
-    time = xoroshiro128p_uniform_float32(rng_states, thread_id) * 37/rate
-    y = xoroshiro128p_uniform_float32(rng_states, thread_id) * rate
-    while(y>interval(rate, time)):
-        time = xoroshiro128p_uniform_float32(rng_states, thread_id) * 37/rate
-        y = xoroshiro128p_uniform_float32(rng_states, thread_id) * rate
 
     final_time[thread_id] = time
 
     mu = muon(x0,y0,z0,theta,phi)
 
 
-    scint1 = scintillator(0.8,0.3,0.02,0,0,0.11, 3)
-    scint2 = scintillator(0.8,0.3,0.04,0,0,0.07, 3)
-    scint3 = scintillator(0.8,0.3,0.04,0,0,0.02, 3)
+    scint1 = scintillator(0.8,0.3,0.02,0,0,0.11, 1)
+    scint2 = scintillator(0.8,0.3,0.04,0,0,0.07, 1.8)
+    scint3 = scintillator(0.8,0.3,0.04,0,0,0.02, 1.8)
 
     # #scint1 = {'lenght': 0.8, 'width': 0.3, 'height': 0.02, 'x0': 0, 'y0': 0, 'z0': 0.11}
     # scint2 = {'lenght': 0.8, 'width': 0.3, 'height': 0.04, 'x0': 0, 'y0': 0, 'z0': 0.07}
@@ -151,9 +146,14 @@ def generation(rng_states, final_time, start_stop):
     elif (scint_passed1 and not scint_passed3) or (not scint_passed1 and scint_passed3):
         #it's a stop
         start_stop[thread_id] = 2
-    else:
-        # it's not a start nor a stop
+    elif (not scint_passed1 and not scint_passed3):
+        # it's not a start nor a stop, but it doesn't bother us
         start_stop[thread_id] = 3
+    else:
+        # not a start nor a stop but it does bother first scintillator  or last one
+        # it's removed with our offline trigger
+        start_stop[thread_id] = 4
+
 
 
 
