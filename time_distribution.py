@@ -1,6 +1,6 @@
 import time
 import random
-from math import sin, cos, pi, exp
+from math import sin, cos, pi, factoria, exp
 from numba.cuda.random import create_xoroshiro128p_states, xoroshiro128p_uniform_float32
 from numba import cuda, jit
 import numpy as np
@@ -10,21 +10,7 @@ from scipy.stats import poisson
 
 start_time = time.time()
 
-started = False
-#last_time = 0
-start_time = 0
 
-
-
-
-def factorial(N):
-    if N==1 or N==0:
-        return 1
-    else:
-        p = 1
-        for i in range(N,1,-1):
-            p *= i
-        return p
 
 
 @jit(nopython=True)
@@ -54,24 +40,53 @@ def generation(rng_states, final_time, start_stop):
     thread_id = cuda.grid(1)
 
 
+    # maximum precision of python is such that if r*t > 37 then exp(-38) = 0.0
+    # max_time can then be 37/rate
 
-
-    time = xoroshiro128p_uniform_float32(rng_states, thread_id) * T_measure
+    time = xoroshiro128p_uniform_float32(rng_states, thread_id) * 37/rate
     y = xoroshiro128p_uniform_float32(rng_states, thread_id) * rate
     while(y>interval(rate, time)):
-        time = xoroshiro128p_uniform_float32(rng_states, thread_id) * T_measure
+        time = xoroshiro128p_uniform_float32(rng_states, thread_id) * 37/rate
         y = xoroshiro128p_uniform_float32(rng_states, thread_id) * rate
+
+    final_time[thread_id] = time
+
     coin =  xoroshiro128p_uniform_float32(rng_states, thread_id)
+
     if coin>=0.9:
         # it's a stop
-        start_stop = 2
+        start_stop[thread_id] = 2
     elif coin>0.1 and coin<0.9:
         # it's not a start nor a stop
-        start_stop = 3
+        start_stop[thread_id] = 3
     else:
         #it's a start
-        start_stop = 1
+        start_stop[thread_id] = 1
 
+def time_diff(final_time, start_stop):
+    times = []
+    i=0
+    while i<len(start_stop):
+        if start_stop[i] == 1:
+            # print('new t')
+            t = 0
+            for j in range(i+1, len(start_stop)):
+                if start_stop[j] == 1:
+                    # print('new t')
+                    i = j
+                    t = 0
+                elif start_stop[j] == 3:
+                    t+= final_time[j]
+                elif start_stop[j] == 2:
+                    t+= final_time[j]
+                    # print('adding new t')
+                    if t < 11:
+                        # print('this is a real event')
+                        times.append(t)
+                    i = j+1
+                    break
+        i+=1
+    return times
 
 def matrix_population(start_stop):
     M = np.array([])
@@ -249,10 +264,15 @@ def matmul(M, times, result):
 # as rate for the muons to be generated we will use the rate of muons that would pass through the upper surface(5m x 2m)
 # we use the rate integrated over angles = 1 cm^-2 min^-1, which means 1666.7 muons/second
 
-rate = 1666.7
+rate = 1666.7/10**6
 # T_measure is 100 minutes(~an hour and half)
-T_measure = 100 * 60
-N = poisson.rvs( rate*T_measure, size = 1)
+# T_measure = 100 * 60
+
+
+T_measure = 10*10**6
+
+
+N = poisson.rvs( rate*T_measure, size = 1)[0]
 #
 # times = []
 # last_time = 0
@@ -279,7 +299,7 @@ result = np.zeros(1)
 threads_per_block = 64
 blocks = 40
 
-nIterations = 3000//(threads_per_block*blocks)
+nIterations = N//(threads_per_block*blocks)
 #nIterations = 1
 for j in range(round(nIterations)):
 
@@ -291,15 +311,17 @@ for j in range(round(nIterations)):
 
     generation[blocks, threads_per_block](rng_states, out1, out2 )
 
-    M = matrix_population(out2)
+    r = time_diff(out1, out2)
 
     # r = np.zeros(M.shape[0])
     # matmul[blocks, threads_per_block](M, out1, r)
-    r = np.dot(M, out1)
+    # r = np.dot(M, out1)
     result = np.concatenate((result,r))
 
-
-
+print(len(result))
+plt.hist(result)
+plt.show()
+print("--- %s seconds ---" % (time.time() - start_time))
 
 # y = xoroshiro128p_uniform_float32(rng_states, thread_id) * 0.33
 # while(y>theta_distrib(theta)):
