@@ -1,6 +1,6 @@
 import time
 import random
-from math import sin, cos, pi, factorial, exp
+from math import sin, cos, pi, factorial, exp, log
 from numba.cuda.random import create_xoroshiro128p_states, xoroshiro128p_uniform_float32
 from numba import cuda, jit
 import numpy as np
@@ -74,22 +74,25 @@ def time_diff(final_time, start_stop):
             t = 0
             for j in range(i+1, len(start_stop)):
                 if start_stop[j] == 1:
-                    print('new t')
+                    #print('new t')
                     i = j
                     t = 0
                 elif start_stop[j] == 4:
                     # it breaks out start
-                    i = j+1
+                    i = j
                     break
                 elif start_stop[j] == 3:
-                    t+= final_time[j]
+                    #t+= final_time[j]
+                    pass
                 elif start_stop[j] == 2:
                     t+= final_time[j]
                     #print('adding new t')
                     if t < 11:
-                        print('this is a real event')
+                        #print('this is a real event')
                         times.append(t)
-                    i = j+1
+                    #else:
+                        #print('too late :(: ', t)
+                    i = j
                     break
         i+=1
     return times
@@ -109,10 +112,10 @@ def generation(rng_states, final_time, start_stop):
     # #rng_states2 = create_xoroshiro128p_states(1, seed=random.uniform(0,10000))
     # rand_theta[1,1](rng_states, theta)
     theta = xoroshiro128p_uniform_float32(rng_states, thread_id) * pi/2
-    y = xoroshiro128p_uniform_float32(rng_states, thread_id) * 0.33
+    y = xoroshiro128p_uniform_float32(rng_states, thread_id) * 1
     while(y>theta_distrib(theta)):
         theta = xoroshiro128p_uniform_float32(rng_states, thread_id) * pi/2
-        y = xoroshiro128p_uniform_float32(rng_states, thread_id) * 0.33
+        y = xoroshiro128p_uniform_float32(rng_states, thread_id) * 1
 
 
 
@@ -154,6 +157,59 @@ def generation(rng_states, final_time, start_stop):
         # it's removed with our offline trigger
         start_stop[thread_id] = 4
 
+
+# ADESSO BISOGNA AGGIUNGERE RADIOATTIVITò ambientale
+@cuda.jit
+def generation_radioactivity(rng_states, final_time, start_stop):
+    thread_id = cuda.grid(1)
+    # radiation is generated over a sphere of radius 2 meters centered at the middle
+    # point of the middle scintillator
+    phi = xoroshiro128p_uniform_float32(rng_states, thread_id) * 2 * pi
+    theta = xoroshiro128p_uniform_float32(rng_states, thread_id) * pi/2
+    r = 2
+
+
+
+
+    y = xoroshiro128p_uniform_float32(rng_states, thread_id)
+    time = interval_2(y, rate)
+
+
+    final_time[thread_id] = time
+
+    mu = muon(x0,y0,z0,theta,phi)
+
+
+    scint1 = scintillator(0.8,0.3,0.02,0,0,0.11, 1)
+    scint2 = scintillator(0.8,0.3,0.04,0,0,0.07, 1.8)
+    scint3 = scintillator(0.8,0.3,0.04,0,0,0.02, 1.8)
+
+    # #scint1 = {'lenght': 0.8, 'width': 0.3, 'height': 0.02, 'x0': 0, 'y0': 0, 'z0': 0.11}
+    # scint2 = {'lenght': 0.8, 'width': 0.3, 'height': 0.04, 'x0': 0, 'y0': 0, 'z0': 0.07}
+    # scint3 = {'lenght': 0.3, 'width': 0.8, 'height': 0.04, 'x0': 0, 'y0': 0.25, 'z0': 0.02}
+
+
+
+    scint_passed1 = passed(mu, scint1)
+    scint_passed2 = passed(mu, scint2)
+    scint_passed3 = passed(mu, scint3)
+
+
+
+    if scint_passed1 and scint_passed2 and not scint_passed3:
+        # it's a start
+        start_stop[thread_id] = 1
+
+    elif (scint_passed1 and not scint_passed3) or (not scint_passed1 and scint_passed3):
+        #it's a stop
+        start_stop[thread_id] = 2
+    elif (not scint_passed1 and not scint_passed3):
+        # it's not a start nor a stop, but it doesn't bother us
+        start_stop[thread_id] = 3
+    else:
+        # not a start nor a stop but it does bother first scintillator  or last one
+        # it's removed with our offline trigger
+        start_stop[thread_id] = 4
 
 
 
@@ -214,8 +270,8 @@ L = 0.80 #m
 l = 0.30 #m
 
 #definisco superfice sopra lo scintillatore
-L_s = 5 #m
-l_s = 2 #m
+L_s = 20 #m
+l_s = 10 #m
 S = L_s*l_s #area sopra sintillatori m^2
 #coordinate iniziali dei muoni
 z0 = 2 #m
@@ -229,12 +285,16 @@ z0 = 2 #m
 # as rate for the muons to be generated we will use the rate of muons that would pass through the upper surface(5m x 2m)
 # we use the rate integrated over angles = 1 cm^-2 min^-1, which means 1666.7 muons/second
 
-rate = 1666.7/10**6
+#rate = 1666.7/10**6
+
+rate = 1.26*10**4/60 * S /10**6
+
+#rate = 10000/10**6
 # T_measure is 100 minutes(~an hour and half)
 # T_measure = 100 * 60
 
 
-T_measure = 10000*10**6
+T_measure = 100*10**6
 
 
 
@@ -282,6 +342,6 @@ for _ in range(round(nIterations)):
     result = np.concatenate((result,r))
 print("--- %s seconds ---" % (time.time() - start_time))
 print(len(result))
-print(n_starts, n_stops, n_c)
+print(n_starts, n_stops, n_c, N-(n_starts+n_stops+n_c))
 plt.hist(result)
 plt.show()
