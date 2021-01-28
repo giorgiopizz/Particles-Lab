@@ -9,17 +9,6 @@ from collections import namedtuple
 start_time = time.time()
 
 
-# class initialization standard:
-# a = "x0, y0, z0, theta, phi"
-# for i in a.split(", "):
-#    print("self.{} = {}".format(i,i))
-
-
-
-@jit(nopython=True)
-def mu_flux(x):
-	# 70 m^-2 s^-1 sr^-1
-	return 70 * cos(x)**2
 
 @jit(nopython=True)
 def theta_distrib(x):
@@ -38,52 +27,9 @@ def rand_theta(rng_states, theta):
 
 muon = namedtuple('muon', ['x0','y0','z0','theta','phi'])
 
-scintillator = namedtuple('scintillator', ['lenght', 'width', 'height', 'x0','y0','z0'])
+scintillator = namedtuple('scintillator', ['lenght', 'width', 'height', 'x0','y0','z0', 'th'])
 
-@cuda.jit
-def single_muon(rng_states, z0, s1, s2, s3):
-    thread_id = cuda.grid(1)
 
-    # x0 and y0 are generated between -Ls/2 and Ls/2
-    x0 = xoroshiro128p_uniform_float32(rng_states, thread_id) * L_s-L_s/2
-    y0 = xoroshiro128p_uniform_float32(rng_states, thread_id) * l_s-l_s/2
-
-    phi = xoroshiro128p_uniform_float32(rng_states, thread_id) * 2 * pi
-
-    theta = xoroshiro128p_uniform_float32(rng_states, thread_id) * pi/2
-    y = xoroshiro128p_uniform_float32(rng_states, thread_id) * 0.33
-    while(y>theta_distrib(theta)):
-        theta = xoroshiro128p_uniform_float32(rng_states, thread_id) * pi/2
-        y = xoroshiro128p_uniform_float32(rng_states, thread_id) * 0.33
-
-	# mu = {'x0': x0, 'y0': y0, 'z0': z0, 'theta': theta, 'phi': phi}
-    mu = muon(x0,y0,z0,theta,phi)
-    # normal configuration:
-    #scint1 is at the top
-
-    scint1 = scintillator(0.8,0.3,0.02,0,0,0.11)
-    scint2 = scintillator(0.8,0.3,0.04,0,0,0.07)
-    scint3 = scintillator(0.8,0.3,0.04,0,0,0.02)
-
-    # scint1 = {'lenght': 0.8, 'width': 0.3, 'height': 0.02, 'x0': 0, 'y0': 0, 'z0': 0.11}
-    # scint2 = {'lenght': 0.8, 'width': 0.3, 'height': 0.04, 'x0': 0, 'y0': 0, 'z0': 0.07}
-    # scint3 = {'lenght': 0.8, 'width': 0.3, 'height': 0.04, 'x0': 0, 'y0': 0, 'z0': 0.02}
-	#
-    # old code
-    # scint_passed1 = passed(theta, phi, x0, y0, z0, scintillatore)
-    # scint_passed2 = passed(theta, phi, x0, y0, z0, 2)
-    # scint_passed3 = passed(theta, phi, x0, y0, z0, 3)
-
-    scint_passed1 = passed(mu, scint1)
-    scint_passed2 = passed(mu, scint2)
-    scint_passed3 = passed(mu, scint3)
-
-    if scint_passed1:
-        s1[thread_id] = 1
-    if scint_passed2:
-        s2[thread_id] = 1
-    if scint_passed3:
-        s3[thread_id] = 1
 
 
 
@@ -111,10 +57,14 @@ def geometrical_factor(rng_states, z0, double, triple):
 
     # code for geometrical factor:
     #scint1 is at the top
-    zona = 2
-    scint1 = scintillator(0.8,0.3,0.02,0,0,0.11)
-    scint2 = scintillator(0.8,0.3,0.04,0,0,0.07)
-    scint3 = scintillator(0.3,0.8,0.04,0,0.25-0.3*zona,0.02)
+    # zona = 2
+    # scint1 = scintillator(0.8,0.3,0.02,0,0,0.11)
+    # scint2 = scintillator(0.8,0.3,0.04,0,0,0.07)
+    # scint3 = scintillator(0.3,0.8,0.04,0,0.25-0.3*zona,0.02)
+
+    scint1 = scintillator(0.08,0.27,0.01,0,0.09,0.1,0.2)
+    scint2 = scintillator(0.8,0.3,0.04,0,0,0.05, 3)
+    scint3 = scintillator(0.08,0.265,0.01,0,0.09,0.005,0.2)
 
     # #scint1 = {'lenght': 0.8, 'width': 0.3, 'height': 0.02, 'x0': 0, 'y0': 0, 'z0': 0.11}
     # scint2 = {'lenght': 0.8, 'width': 0.3, 'height': 0.04, 'x0': 0, 'y0': 0, 'z0': 0.07}
@@ -179,113 +129,10 @@ def passed(mu, scint):
     # * 100 is m to cm conversion factor
     released_energy = 1 * 1.032 * path * 100
     #print(released_energy)
-    if(released_energy > 3):
+    if(released_energy > scint.th):
         return True
     else:
         return False
-
-
-
-
-
-
-# old code
-# @jit(nopython=True)
-# def passed(theta, phi, x0, y0, z0, scint):
-#     if scint==1:
-#         z = z0-0.13
-#         h = 0.02
-#     elif scint==2:
-#         z = z0-0.09
-#         h = 0.04
-#     elif scint==3:
-#         z = z0-0.04
-#         h = 0.04
-#     else:
-#         print("No correct scintillator provided")
-#         return
-#     ingress = False
-#     path = 0
-#     # discr is the number of discretization of the z variable
-#     discr = 2000
-#     decrement = h/discr
-#     for i in range(discr):
-#         t = z / cos(theta)
-#         x = x0 + t * sin(theta) * cos(phi)
-#         y = y0 + t * sin(theta) * sin(phi)
-#
-#         if((x > 0.85 and x < 1.15) and (y > 2.1 and y < 2.9) and not ingress):
-#             ingress = True
-#             path += decrement/cos(theta)
-#
-#         elif((x > 0.85 and x < 1.15) and (y > 2.1 and y < 2.9) and ingress):
-#             path += decrement/cos(theta)
-#
-#         elif(ingress):
-#             break
-#
-#         z -= decrement
-# 	# in order to be revealed by out experiment, the muon must release at leat 3 MeV
-# 	# with a simple approximation, we suppose that most muons are MIP, which release 1 - 2 MeV/(g/cm^2)
-# 	# assuming 1.032 g/cm^3 as the density of the scintillators
-# 	# * 100 is m to cm conversion factor
-#     released_energy = 1 * 1.032 * path * 100
-#     #print(released_energy)
-#     if(released_energy > 3):
-#         return True
-#     else:
-#         return False
-
-
-
-# L = 0.80 #m
-# l = 0.30 #m
-#
-# tempo = 600 #secondi (10 minuti)
-# #definisco superfice sopra lo scintillatore
-# L_s = 5 #m
-# l_s = 2 #m
-# S = L_s*l_s #area sopra sintillatori m^2
-# #coordinate iniziali dei muoni
-# z0 = 2 #m
-#
-# tot1 = np.zeros(1)
-# tot2 = np.zeros(1)
-# tot3 = np.zeros(1)
-#
-#
-# for i in range(1000):
-#     #theta = 0.49087549338874903
-#     # flux = mu_flux(theta)
-#     # phi = random.uniform(0, 2*pi)
-#     # # the flux and the surface are not perpendicular, cosine is needed for calculating the rate of particles
-#     # N = tempo*flux*S*cos(theta)*sin(theta)
-#     # massimo numero di cuda cores per rtx 2070 super = 2560 quindi 40*64
-#     threads_per_block = 64
-#     blocks = 40
-#
-#     nIterations = 10000//(threads_per_block*blocks)
-#     #nIterations = 1
-#     for j in range(round(nIterations)):
-#
-#         out1 = np.zeros(threads_per_block * blocks)
-#         out2 = np.zeros(threads_per_block * blocks)
-#         out3 = np.zeros(threads_per_block * blocks)
-#
-#         rng_states = create_xoroshiro128p_states(threads_per_block * blocks, seed=random.uniform(0,10000))
-#
-#         single_muon[blocks, threads_per_block](rng_states, z0, out1, out2, out3)
-#         # single_muon[blocks, threads_per_block](rng_states, theta, phi, z0, out1, out2, out3)
-#         tot1 = np.concatenate((tot1,out1))
-#         tot2 = np.concatenate((tot2,out2))
-#         tot3 = np.concatenate((tot3,out3))
-#
-#
-# print(tot1.sum(), tot2.sum() ,tot3.sum())
-#
-#
-#
-# print("--- %s seconds ---" % (time.time() - start_time))
 
 
 
